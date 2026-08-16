@@ -1,0 +1,32 @@
+{
+  "language": "ru",
+  "debug": false,
+  "privateKeysFile": "./pk.txt",
+  "proxiesFile": "./proxies.txt",
+
+  "markets": ["all"],
+  "clusterSize": [2, 4],
+  "rotationStateFile": "./rotation-state.json",
+  "signerKeysFile": "./lighter-keys.json",
+
+  "firstSide": "RANDOM",
+  "positionSizeUsd": [20, 40],
+  "holdTimeSec": [1200, 3600],
+  "loopDelaySec": [60, 120],
+
+  "marginSafetyPct": 0.95,
+  "shrinkOnMarginFail": true,
+
+  "desiredSpreadTicks": 1,
+  "takerDelaySec": 10,
+  "closeSpreadWaitSec": 3600,
+
+  "closePositions": true,
+  "flattenOnStart": true,
+  "minBalanceUsd": 1,
+  "dryRun": false,
+
+  "telegramBotToken": "TELEGRAM_BOT_TOKEN_HERE",
+  "telegramChatId": "YOUR_TELEGRAM_CHAT_ID",
+  "telegramProxyUrl": ""
+}

@@ -1,0 +1,24 @@
+{
+  "name": "lighter-selfsign",
+  "version": "1.0.0",
+  "description": "Self-match limitDelay cluster bot for Robinhood-Lighter perp DEX — port of risex-dn-bot targeting robinhoodchain.lighter.xyz / api.rh.lighter.xyz.",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "info": "node info.js",
+    "flatten": "node flatten.js",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "ethers": "^6.0.0",
+    "lighter-ts-sdk": "^1.0.13",
+    "playwright": "^1.48.0",
+    "undici": "^7.26.0",
+    "bytenode": "^1.6.0"
+  },
+  "engines": {
+    "node": "22.18.0"
+  }
+}

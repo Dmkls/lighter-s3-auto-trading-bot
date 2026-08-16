@@ -1,0 +1,7 @@
+node_modules/
+pk.txt
+proxies.txt
+config.json
+lighter-keys.json
+rotation-state.json
+volume-targets-state.json
