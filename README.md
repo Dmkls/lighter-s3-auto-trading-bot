@@ -1,8 +1,130 @@
-# Дельта нейтральный бот для Robinhood-Lighter
+# Delta-neutral bot for Robinhood-Lighter
+
+[Русская версия](#русская-версия) | [English version](#english-version)
+
+---
+
+## English version
+
+### Delta-neutral bot for Robinhood-Lighter
+
+The bot splits accounts into clusters, picks a random coin from the config, has one account from the cluster place a limit order inside the spread, has the other accounts buy it up, holds for a while, then also closes and reassembles the cluster from other accounts
+
+#### Detailed description
+
+One cycle:
+1. A random **cluster** of `clusterSize` accounts (1 maker + N−1 takers) and a market are chosen.
+2. **Opening**:
+   1. The coin's spread must fit `desiredSpreadTicks` — the number of FREE price levels strictly between the best bid and best ask:
+      `round((ask−bid)/tick) − 1`. `0` = bid/ask on adjacent ticks (no gap). The number `N` is a minimum (there must be **at least** `N` free ticks).
+   2. The maker places **one GTC limit order** for the whole size: if there's no spread and `desiredSpreadTicks` = 0 in the config, it's placed exactly at the current price with no improvement;
+      if `desiredSpreadTicks` > 0, it improves the price by at least 1 tick.
+   3. **1s pause, then re-read the top of the book.** If the maker is still best — the takers immediately place opposing GTC limit orders at the same price. If the maker got outbid —
+      the bot checks what actually got filled: nothing filled → cancel the order and retry at a fresh price; partially/fully filled → the takers
+      make up exactly the filled chunk with an aggressive IOC at the current price, while the
+      uncovered remainder goes into the next attempt.
+   4. **Reconciling actual positions** for each participant — if the self-match didn't come together fully,
+      the shortfall is made up **at market**, after which the position is reconciled once more.
+   5. If even the top-up doesn't square someone up — an emergency reopen of the whole cluster,
+      the cycle is skipped.
+3. **Hold** for a random amount of time from `holdTimeSec`.
+4. **Close** (if `closePositions`): the same self-match mechanics, but
+   if there's no spread right now — wait and recheck every 5s, the maximum
+   time is set by `closeSpreadWaitSec`, after which it closes at market.
+5. Pause for `loopDelaySec`, repeat.
+
+#### Rounds, clusters, and account rotation
+
+The bot works in **rounds**, so the cluster composition actually gets shuffled:
+
+1. At the start of a round **all accounts are free** → the whole pool is split into clusters
+   (`clusterSize`, e.g. `[2,4]`), **with no singles left over**: if 1 account remains after the split,
+   it's merged into a cluster or the size is narrowed down to a pair.
+2. Each cluster has **its own random hold** (`holdTimeSec`).
+   The round ends when the **longest-held** cluster finishes. Shorter ones, once they finish a cycle,
+   **repeat** it (new size/side) for as long as another full cycle still fits before the round ends.
+3. The round waits for **all** clusters to close → all accounts become free →
+   a **full reshuffle** and a new round.
+
+
+#### Requirements
+
+- Node.js 18+.
+- accounts with a balance on Lighter
+- proxies
+
+#### Installation
+
+```bash
+npm install
+``
+
+after that
+
+```bash
+Copy-Item config.example.json config.json
+Copy-Item pk.example.txt pk.txt
+Copy-Item proxies.example.txt proxies.txt
+```
+
+or manually replace the files `config.example.json`, `pk.example.txt`, `proxies.example.txt` with their counterparts **without example**
+
+Fill in `pk.txt` — account private keys, they must already be registered and funded, at least 2, and proxies in `proxies.txt`.
+Configure `config.json`.
+
+#### Launch
+
+3. `npm run dev` or `npm run build && npm start`
+
+### Referral code
+
+This build of the bot only works if every account in `pk.txt` is registered
+on Robinhood-Lighter under one of the codes `VLADEM`, `RHLIGHTER`,
+`BULLRUNSOON`, `FREEDOMLIT`, `PERPLFCH`, `LIGHTERLFG`. Before start 
+the bot checks each account's referral code if even one doesn't match any
+accepted code (or has no code at all) the bot prints the list of 
+non-matching accounts and exits
+
+#### config.json
+
+| Field | Meaning |
+|---|---|
+| `signerKeysFile` | additional keys are stored here — each wallet gets its own signing key generated on first run and saved here, so on restart the bot reuses the same key instead of registering a new one. **Don't send this to anyone** |
+| `privateKeysFile` | path to the file the bot reads private keys from, default `./pk.txt`|
+| `proxiesFile` |  path to the file the bot reads proxies from, default `./proxies.txt` |
+| `markets` | lists the pairs to trade on (you can run `npm run info` to print the correct name of every pair), or set `"all"`, in which case a random suitable one is chosen |
+| `clusterSize` | cluster size `[from, to]` — a cluster is several accounts where, e.g., 1 holds long and the rest hold short (or the other way around), clusters are reassembled every round|
+| `rotationStateFile` | auxiliary file for the bot — stores how many times each account has been the maker, default `./rotation-state.json` |
+| `signerKeysFile` | auxiliary file for the bot — stores accounts' API keys, default `./lighter-keys.json` |
+| `firstSide` | can be set so long is always placed first, default is `RANDOM` |
+| `positionSizeUsd` | position size to open, accounting for leverage, [from, to] — if `markets` is set to `all` then a suitable pair with enough leverage is searched for |
+| `holdTimeSec` | hold time in seconds [from, to], better set to 30 minutes - 1 hour |
+| `loopDelaySec` | pause in seconds before repeating, [from, to] |
+| `marginSafetyPct` | percentage to shrink the position size by to avoid frequent margin-shortage errors, better left at 0.95  |
+| `shrinkOnMarginFail` | useful setting — if the size is set to e.g. $1000, but the balance is only $20, the bot will gradually shrink the size until it fits the balance |
+| `desiredSpreadTicks` | how much spread a pair needs to open a trade on it, measured in ticks — the smallest amount the price can be changed by, e.g. 1 cent for ETH|
+| `takerDelaySec` | rarely used, for when a pair with a spread can't be found |
+| `closeSpreadWaitSec` | how many seconds to wait for a spread to close with — only with it can you close at zero, it's usually found within 0-10 seconds, but I set 3600 for reliability |
+| `closePositions` | `true/false` whether to use the same mechanics on close, or hold so it closes via TP/SL (the bot doesn't place these — set false only if you need it) if false, closes at market once the time is up | 
+| `flattenOnStart` | `true/false` whether to close open positions, if any, on startup |
+| `minBalanceUsd` | checks account balances on startup, if below this amount the account is simply ignored |
+| `dryRun` | used for testing, if dryRun=true the bot doesn't make real trades but logs as if it were really working, default false |
+| `telegramBotToken` | from [@BotFather](https://t.me/BotFather) |
+| `telegramChatId` | your ID (get it from [@userinfobot](https://t.me/userinfobot)). |
+| `telegramProxyUrl` | proxy for Telegram, so the bot can send messages from a server with any geo, if left blank it takes the first proxy from the `proxies.txt` file |
+
+#### Security
+
+- `pk.txt`, `config.json`, `proxies.txt`, `lighter-keys.json`,
+  `rotation-state.json` — don't send these to anyone, they hold private keys and account data
+
+## Русская версия
+
+### Дельта нейтральный бот для Robinhood-Lighter
 
 Софт делит аккаунты на кластеры, выбирает случайную монету из конфига, одним аккаунтом из кластера ставит лимитку между стаканом, выкупает её другими аккаунтами, держит некоторое время, также закрывает и пересобирает кластер из других аккаунтов
 
-## Подробное описание
+#### Подробное описание
 
 Один цикл:
 1. Выбирается случайный **кластер** из `clusterSize` аккаунтов (1 maker + N−1
@@ -32,7 +154,7 @@
    время задано в `closeSpreadWaitSec`, после этого закрывается по рынку.
 5. Пауза `loopDelaySec`, повтор.
 
-## Раунды, кластеры и ротация аккаунтов
+#### Раунды, кластеры и ротация аккаунтов
 
 Бот работает **раундами**, чтобы состав кластеров реально перемешивался:
 
@@ -47,13 +169,13 @@
    **полная перетасовка** и новый раунд.
 
 
-## Требования
+#### Требования
 
 - Node.js 18+.
 - аккаунты с балансом на лайтере
 - парокси
 
-## Установка
+#### Установка
 
 ```bash
 npm install
@@ -72,11 +194,21 @@ Copy-Item proxies.example.txt proxies.txt
 Заполните `pk.txt` - приватные ключи аккаунтов, они должны быть уже зарегистрированы и пополнены, минимум 2 и прокси в `proxies.txt`. 
 Настройте `config.json`.
 
-## Запуск
+#### Запуск
 
 3. `npm run dev` или `npm run build && npm start`
 
-## config.json
+### Реферальный код
+
+Эта раздача бота работает **только** если каждый аккаунт в `pk.txt`
+зарегистрирован на Robinhood-Lighter по одному из кодов `VLADEM`,
+`RHLIGHTER`, `BULLRUNSOON`, `FREEDOMLIT`, `PERPLFCH`, `LIGHTERLFG`. Перед стартом
+ бот проверяет реферальный кодкаждого аккаунта
+если хоть один не совпадает ни с одним из принятых кодов
+(или не имеет кода вообще), бот печатает список несоответствующих аккаунтов
+и завершает запуск
+
+#### config.json
 
 | Поле | Смысл |
 |---|---|
@@ -104,7 +236,7 @@ Copy-Item proxies.example.txt proxies.txt
 | `telegramChatId` | твой айди (узнать у [@userinfobot](https://t.me/userinfobot)). |
 | `telegramProxyUrl` | прокси для тг, чтобы бот мог отправлять сообщения с сервера с любым гео, если ничего не писать, то возьмёт первую проксю из файла `proxies.txt` |
 
-## Безопасность
+#### Безопасность
 
 - `pk.txt`, `config.json`, `proxies.txt`, `lighter-keys.json`,
   `rotation-state.json` — никому не отправляйте, в них приватные ключи и данные аккаунтов
